@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spicelib-mcp"
+version = "0.1.0"
+description = "MCP server for running ngspice simulations via spicelib"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "spicelib",
+    "numpy",
+]
+
+[project.scripts]
+spicelib-mcp = "server_stdio:main"
+
+[tool.hatch.build.targets.wheel]
+include = [
+    "server.py",
+    "server_stdio.py",
+]

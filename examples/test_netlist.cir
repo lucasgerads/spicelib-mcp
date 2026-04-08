@@ -1,0 +1,12 @@
+.title KiCad schematic
+.save all
+.probe alli
+.probe p(V1)
+.probe p(R1)
+.probe p(C1)
+.tran 1n 1u
+V1 /in 0 PULSE( 0 1 2n 2n 2n 50n 100n ) 
+R1 /in /out 1k
+C1 /out 0 10p
+.end
+

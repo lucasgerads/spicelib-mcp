@@ -1,0 +1,12 @@
+CLAUDE.md
+.mcp.json
+spicelib-mcp-spec.md
+.venv/
+__pycache__/
+*.npz
+*.png
+*.raw
+*.log
+
+# generated netlist variants
+*_[0-9]*.cir
