@@ -25,15 +25,31 @@ from mcp.server.fastmcp import FastMCP
 from spicelib.editor.spice_editor import SpiceEditor
 from spicelib.raw.raw_read import RawRead
 from spicelib.simulators.ngspice_simulator import NGspiceSimulator
+from spicelib.simulators.ltspice_simulator import LTspice
+from spicelib.simulators.qspice_simulator import Qspice
+from spicelib.sim.sim_runner import SimRunner
+import kicad_compat
 
 mcp = FastMCP("spicelib")
 
+_SIMULATOR_MAP = {
+    "ngspice": NGspiceSimulator,
+    "ltspice": LTspice,
+    "qspice":  Qspice,
+}
+_sim_name = os.environ.get("SPICE_SIMULATOR", "ngspice").lower()
+Simulator = _SIMULATOR_MAP.get(_sim_name)
+if Simulator is None:
+    print(f"WARNING: Unknown SPICE_SIMULATOR '{_sim_name}'. Valid options: {list(_SIMULATOR_MAP)}. Falling back to ngspice.",
+          file=sys.stderr, flush=True)
+    Simulator = NGspiceSimulator
+
 _SPICE_PATH = os.environ.get("SPICE_PATH")
 if _SPICE_PATH:
-    NGspiceSimulator.spice_exe = [_SPICE_PATH]
+    Simulator.spice_exe = [_SPICE_PATH]
 
-if not NGspiceSimulator.is_available():
-    print("WARNING: ngspice not found on PATH. Set SPICE_PATH env var to override.",
+if not Simulator.is_available():
+    print(f"WARNING: {_sim_name} not found on PATH. Set SPICE_PATH env var to override.",
           file=sys.stderr, flush=True)
 
 
@@ -51,11 +67,7 @@ def _prepare_and_run(netlist_path: str, analysis_cmd: str | None = None) -> tupl
     tmp_net = tmp_dir / src.name
     shutil.copy2(src, tmp_net)
 
-    # KiCad exports `.title ...` as the first line; SPICE convention (and
-    # SpiceEditor) requires the title line to start with `*`.
-    text = tmp_net.read_text()
-    if text.lower().startswith(".title"):
-        tmp_net.write_text("*" + text[6:])
+    tmp_net.write_text(kicad_compat.apply_all(tmp_net.read_text()))
 
     if analysis_cmd is not None:
         ed = SpiceEditor(tmp_net)
@@ -64,7 +76,7 @@ def _prepare_and_run(netlist_path: str, analysis_cmd: str | None = None) -> tupl
         ed.add_instruction(analysis_cmd)
         ed.save_netlist(tmp_net)
 
-    rc = NGspiceSimulator.run(tmp_net, stdout=None, stderr=None)
+    rc = Simulator.run(tmp_net, stdout=None, stderr=None)
     raw_path = tmp_net.with_suffix(".raw")
     if not raw_path.exists():
         raise RuntimeError(f"ngspice returned code {rc} and produced no .raw file")
@@ -92,7 +104,10 @@ def run_ac_analysis(netlist_path: str, start_freq: str, stop_freq: str,
     Results are saved to a .npz file next to the netlist. Load with:
         data = np.load('netlist_ac.npz')
         freq = data['frequency_hz']
-        # traces are stored as complex values, e.g. data['v(_out)']
+        # traces are stored as complex values, e.g. data['v(out)']
+
+    For sweeping a component value or parameter across multiple AC runs in
+    parallel, use run_sweep(analysis_cmd=".ac dec N fstart fstop") instead.
 
     Args:
         netlist_path: Absolute path to the netlist file (.net, .sp, .cir, etc.)
@@ -144,7 +159,10 @@ def run_transient(netlist_path: str, step_time: str, stop_time: str,
     Results are saved to a .npz file next to the netlist. Load with:
         data = np.load('netlist_tran.npz')
         time = data['time_s']
-        vout = data['v(_out)']   # node names: / replaced with _
+        vout = data['v(out)']
+
+    For sweeping a component value or parameter across multiple transient runs
+    in parallel, use run_sweep(analysis_cmd=".tran step stop") instead.
 
     Args:
         netlist_path: Absolute path to the netlist file
@@ -215,6 +233,110 @@ def run_dc_op(netlist_path: str) -> str:
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
         return json.dumps({"type": "dc_op", "nodes": nodes, "currents": currents})
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+@mcp.tool()
+def run_sweep(netlist_path: str, analysis_cmd: str, runs: list[dict],
+              parallel: int = 4) -> str:
+    """Run multiple SPICE simulations in parallel, sweeping component values.
+
+    Uses spicelib's SimRunner to execute runs concurrently. Each run gets its
+    own .npz file. Use this instead of calling run_ac_analysis / run_transient
+    in a loop — it's significantly faster for multi-run sweeps.
+
+    Example — sweep capacitor C1 across three values with a transient analysis:
+        run_sweep(
+            netlist_path="/path/to/filter.cir",
+            analysis_cmd=".tran 1n 1u",
+            runs=[{"C1": "1p"}, {"C1": "10p"}, {"C1": "100p"}],
+        )
+    Output files: filter_sweep_001.npz, filter_sweep_002.npz, filter_sweep_003.npz
+
+    Each dict in `runs` maps component reference designators or SPICE parameter
+    names to their new values (strings with optional SPICE suffix, e.g. "4.7k").
+
+    Args:
+        netlist_path: Absolute path to the netlist file
+        analysis_cmd: Full SPICE analysis line, e.g. ".tran 1n 1u" or ".ac dec 20 1 1G"
+        runs: List of dicts, one per simulation. Keys are component names or
+              parameter names; values are the new value strings.
+        parallel: Maximum number of simultaneous ngspice processes (default 4)
+
+    Returns:
+        JSON list of per-run summaries, each with keys:
+          run        — 1-indexed run number
+          data_file  — path to the .npz file
+          values     — the component/parameter values used for this run
+          traces     — list of trace names in the .npz
+    """
+    try:
+        src = Path(netlist_path).expanduser().resolve()
+        tmp_dir = Path(tempfile.mkdtemp(prefix="spicelib_mcp_sweep_"))
+        try:
+            # Write the kicad-fixed base netlist once; SimRunner copies from it.
+            base_net = tmp_dir / src.name
+            base_net.write_text(kicad_compat.apply_all(src.read_text()))
+
+            runner = SimRunner(simulator=Simulator,
+                               parallel_sims=parallel,
+                               output_folder=tmp_dir,
+                               verbose=False)
+
+            for i, values in enumerate(runs, start=1):
+                ed = SpiceEditor(base_net)
+                for pattern in _ANALYSIS_PATTERNS:
+                    ed.remove_Xinstruction(pattern)
+                ed.add_instruction(analysis_cmd)
+                for ref, val in values.items():
+                    ed.set_component_value(ref, val)
+                runner.run(ed, run_filename=f"{src.stem}_sweep_{i:03d}.cir")
+
+            runner.wait_completion()
+
+            cmd_lower = analysis_cmd.strip().lower()
+            results = []
+            for task in sorted(runner.completed_tasks, key=lambda t: t.runno):
+                raw_path = task.raw_file
+                runno = task.runno
+                ltr = RawRead(raw_path, traces_to_read='*', verbose=False)
+                axis = ltr.get_axis()
+                trace_names = ltr.get_trace_names()
+
+                # Determine axis key from analysis type
+                if cmd_lower.startswith(".ac"):
+                    axis_key = "frequency_hz"
+                    axis_data = np.abs(axis)
+                    scalar_traces = [n for n in trace_names
+                                     if n.lower() not in ("frequency", "freq")]
+                elif cmd_lower.startswith(".tran"):
+                    axis_key = "time_s"
+                    axis_data = np.real(axis)
+                    scalar_traces = [n for n in trace_names if n.lower() != "time"]
+                else:
+                    axis_key = "axis"
+                    axis_data = axis
+                    scalar_traces = trace_names
+
+                arrays = {axis_key: axis_data}
+                for name in scalar_traces:
+                    wave = ltr.get_wave(name)
+                    arrays[name] = np.real(wave) if cmd_lower.startswith(".tran") else wave
+
+                out_path = src.with_name(f"{src.stem}_sweep_{runno:03d}")
+                _save_npz(out_path, arrays)
+                results.append({
+                    "run": runno,
+                    "data_file": str(out_path) + ".npz",
+                    "values": runs[runno - 1],
+                    "traces": scalar_traces,
+                })
+
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        return json.dumps(results)
     except Exception as e:
         return f"ERROR: {e}"
 

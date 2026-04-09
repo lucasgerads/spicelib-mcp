@@ -24,4 +24,5 @@ spicelib-mcp = "server_stdio:main"
 include = [
     "server.py",
     "server_stdio.py",
+    "kicad_compat.py",
 ]
