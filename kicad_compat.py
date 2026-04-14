@@ -31,10 +31,11 @@ def fix_node_slashes(text: str) -> str:
     spicelib's SpiceEditor component regexes do not allow `/` in node names,
     causing UnrecognizedSyntaxError when editing component values.
 
-    Removes only `/` immediately followed by a word character, leaving
-    any other use of `/` (e.g. in comments) untouched.
+    Removes only `/` immediately preceded by whitespace and followed by a
+    word character (i.e. net names like `/out`, `/vcc`), leaving path
+    separators inside quoted strings (e.g. `.include` paths) untouched.
     """
-    return re.sub(r'/(\w)', r'\1', text)
+    return re.sub(r'(?<=\s)/(\w)', r'\1', text)
 
 
 def apply_all(text: str) -> str:

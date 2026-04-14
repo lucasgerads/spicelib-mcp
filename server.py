@@ -76,7 +76,7 @@ def _prepare_and_run(netlist_path: str, analysis_cmd: str | None = None) -> tupl
         ed.add_instruction(analysis_cmd)
         ed.save_netlist(tmp_net)
 
-    rc = Simulator.run(tmp_net, stdout=None, stderr=None)
+    rc = Simulator.run(tmp_net, exe_log=True)
     raw_path = tmp_net.with_suffix(".raw")
     if not raw_path.exists():
         raise RuntimeError(f"ngspice returned code {rc} and produced no .raw file")
@@ -291,7 +291,7 @@ def run_sweep(netlist_path: str, analysis_cmd: str, runs: list[dict],
                 ed.add_instruction(analysis_cmd)
                 for ref, val in values.items():
                     ed.set_component_value(ref, val)
-                runner.run(ed, run_filename=f"{src.stem}_sweep_{i:03d}.cir")
+                runner.run(ed, run_filename=f"{src.stem}_sweep_{i:03d}.cir", exe_log=True)
 
             runner.wait_completion()
 
