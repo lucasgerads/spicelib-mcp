@@ -1,6 +1,6 @@
 # spicelib-mcp
 
-A thin MCP server that wraps [spicelib](https://github.com/nunobrum/spicelib) for circuit simulation. The heavy lifting — simulator invocation, `.raw` file parsing, and multi-simulator abstraction — is done by spicelib, which deserves most of the credit. This project is purely a transport layer that exposes spicelib's functionality as MCP tools for use with Claude Code (and other coding agents).
+A thin MCP server that wraps [spicelib](https://pypi.org/project/spicelib/) for circuit simulation. The heavy lifting, such as simulator invocation, `.raw` file parsing, and multi-simulator abstraction, is done by spicelib, which deserves most of the credit. This project is purely a transport layer that exposes spicelib's functionality as MCP tools for use with Claude Code (and other coding agents).
 
 Primary use case: behavioral model fitting — run simulations, compare against real measurements, iterate on SPICE models.
 
