@@ -23,6 +23,25 @@ Results are saved as `.npz` files alongside the netlist for further analysis and
 
 Set the `SPICE_PATH` environment variable to override the simulator binary location.
 
+## Setup
+
+Copy `.mcp.json.template` to `.mcp.json` in your project directory and adjust `SPICE_SIMULATOR` if needed:
+
+```json
+{
+  "mcpServers": {
+    "spicelib": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["spicelib-mcp"],
+      "env": {
+        "SPICE_SIMULATOR": "ngspice"
+      }
+    }
+  }
+}
+```
+
 ## Requirements
 
 - Python 3.10+

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "spicelib": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["spicelib-mcp"],
+      "env": {
+        "SPICE_SIMULATOR": "ngspice"
+      }
+    }
+  }
+}
