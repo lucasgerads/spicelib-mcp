@@ -70,7 +70,7 @@ def _prepare_and_run(netlist_path: str, analysis_cmd: str | None = None) -> tupl
     tmp_net.write_text(kicad_compat.apply_all(tmp_net.read_text()))
 
     if analysis_cmd is not None:
-        ed = SpiceEditor(tmp_net)
+        ed = SpiceEditor(tmp_net, encoding="utf-8")
         for pattern in _ANALYSIS_PATTERNS:
             ed.remove_Xinstruction(pattern)
         ed.add_instruction(analysis_cmd)
@@ -285,7 +285,7 @@ def run_sweep(netlist_path: str, analysis_cmd: str, runs: list[dict],
                                verbose=False)
 
             for i, values in enumerate(runs, start=1):
-                ed = SpiceEditor(base_net)
+                ed = SpiceEditor(base_net, encoding="utf-8")
                 for pattern in _ANALYSIS_PATTERNS:
                     ed.remove_Xinstruction(pattern)
                 ed.add_instruction(analysis_cmd)
